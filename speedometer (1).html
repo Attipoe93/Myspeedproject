@@ -1,0 +1,122 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Speedometer Data</title>
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head><body class="bg-slate-950 text-slate-100 min-h-screen"><div id="app"></div>
+<script>
+const SB_URL='https://rtzzdqhjhlazwgfnrgvq.supabase.co',SB_KEY='sb_publishable_5tLbS2D_PRRcaC9ebeSj2Q_dIJ8e1R-';
+const sb=supabase.createClient(SB_URL,SB_KEY);
+const PFX={MTN:['024','054','055','059','025','053'],Telecel:['020','050'],AirtelTigo:['027','057','026','056']};
+const STAT=['Pending','Processing','Complete','Failed','Cancelled','Refunded'];
+const S={u:null,p:null,pk:[]};let net='MTN',mode='single',V=null;
+const $=s=>document.querySelector(s),app=$('#app');
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const GH=n=>'GH₵ '+Number(n||0).toFixed(2);
+const I='w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-slate-100',B='rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold px-4 py-2',B2='rounded-lg bg-slate-700 hover:bg-slate-600 px-4 py-2',C='rounded-2xl bg-slate-900 border border-slate-800 p-4';
+const dt=d=>new Date(d).toLocaleString();
+const msg=(t,bad)=>`<p class="${bad?'text-red-400':'text-emerald-400'} text-sm mt-2" role="alert">${esc(t)}</p>`;
+
+/* ---------- auth / landing ---------- */
+function landing(tab='login'){
+ app.innerHTML=`<main class="max-w-md mx-auto p-6 pt-16"><h1 class="text-4xl font-extrabold text-emerald-400">Speedometer</h1><p class="text-slate-400 mb-6">Fast, reliable data bundles for MTN, Telecel and AirtelTigo.</p>
+ <div class="${C}"><div class="flex gap-2 mb-4"><button id="tl" class="${tab=='login'?B:B2} flex-1">Login</button><button id="ts" class="${tab=='signup'?B:B2} flex-1">Sign up</button></div>
+ <form id="f" class="space-y-3">${tab=='signup'?`<input name="full_name" required placeholder="Full name" class="${I}"><input name="phone" required placeholder="Phone number" class="${I}">`:''}
+ <input name="email" type="email" required placeholder="Email" class="${I}">
+ <div class="flex gap-2"><input id="pw" name="password" type="password" minlength="6" required placeholder="Password" class="${I}"><button type="button" id="eye" class="${B2}" aria-label="Show or hide password">Show</button></div>
+ <button class="${B} w-full">${tab=='login'?'Login':'Create account'}</button><div id="m"></div></form></div></main>`;
+ $('#tl').onclick=()=>landing('login');$('#ts').onclick=()=>landing('signup');
+ $('#eye').onclick=e=>{const p=$('#pw'),h=p.type=='password';p.type=h?'text':'password';e.target.textContent=h?'Hide':'Show'};
+ $('#f').onsubmit=async e=>{e.preventDefault();const d=Object.fromEntries(new FormData(e.target));let r;
+  if(tab=='login')r=await sb.auth.signInWithPassword({email:d.email,password:d.password});
+  else r=await sb.auth.signUp({email:d.email,password:d.password,options:{data:{full_name:d.full_name,phone:d.phone}}});
+  if(r.error)return $('#m').innerHTML=msg(r.error.message,1);
+  if(tab=='signup'&&!r.data.session)return $('#m').innerHTML=msg('Account created. Confirm your email if asked, then login.');
+  boot()}}
+async function loadProfile(){const{data}=await sb.from('profiles').select('*').eq('id',S.u.id).single();S.p=data}
+async function boot(){const{data}=await sb.auth.getSession();if(!data.session)return landing();S.u=data.session.user;await loadProfile();
+ if(!S.p?.approved)return app.innerHTML=`<main class="max-w-md mx-auto p-6 pt-24 text-center"><h1 class="text-3xl font-bold text-emerald-400">Awaiting approval</h1><p class="text-slate-300 my-4">Your account was created. An admin must approve it before you can use the dashboard.</p><button id="rf" class="${B}">Check again</button> <button id="lo" class="${B2}">Logout</button></main>`,$('#rf').onclick=boot,$('#lo').onclick=out;
+ const{data:pk}=await sb.from('packages').select('*').order('price');S.pk=pk||[];route()}
+const out=async()=>{await sb.auth.signOut();location.hash='';landing()};
+
+/* ---------- shell + router ---------- */
+function shell(title,inner){const L=[['dash','Dashboard'],['packages','Data Packages'],['store','Agent Store'],['orders','Order History'],['tx','Transactions'],['profile','Profile']];if(S.p.role=='admin')L.push(['admin','Admin']);
+ app.innerHTML=`<header class="sticky top-0 z-10 bg-slate-900 border-b border-slate-800"><nav aria-label="Main" class="max-w-5xl mx-auto flex flex-wrap items-center gap-1 p-2"><a href="#/dash" class="font-extrabold text-emerald-400 mr-3">⚡ Speedometer</a>${L.map(l=>`<a href="#/${l[0]}" class="px-3 py-1.5 rounded-lg text-sm ${location.hash=='#/'+l[0]?'bg-emerald-500 text-slate-950':'hover:bg-slate-800'}">${l[1]}</a>`).join('')}<button id="lo" class="ml-auto text-sm px-3 py-1.5 rounded-lg hover:bg-slate-800">Logout</button></nav></header>
+ <main class="max-w-5xl mx-auto p-4"><div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">${title}</h1><span class="${C} !py-1 text-sm">Wallet: <b class="text-emerald-400">${GH(S.p.wallet)}</b></span></div>${inner}</main>`;$('#lo').onclick=out}
+function route(){if(!S.p?.approved)return;const r=(location.hash.replace('#/','')||'dash');({dash,packages,store,orders,tx,profile,admin}[r]||dash)()}
+window.onhashchange=route;
+
+/* ---------- dashboard ---------- */
+async function dash(range='week'){const t0=new Date();t0.setHours(0,0,0,0);
+ const since=new Date(Date.now()-(range=='week'?7:30)*864e5).toISOString();
+ const[{count},{data:t}]=await Promise.all([sb.from('orders').select('id',{count:'exact',head:true}).eq('user_id',S.u.id).gte('created_at',t0.toISOString()),sb.from('transactions').select('*').eq('user_id',S.u.id).gte('created_at',since).order('created_at',{ascending:false})]);
+ await loadProfile();const spent=(t||[]).filter(x=>x.type=='purchase').reduce((a,x)=>a+ +x.amount,0);
+ shell('Dashboard',`<div class="grid sm:grid-cols-3 gap-3 mb-4"><div class="${C}"><p class="text-slate-400 text-sm">Wallet balance</p><p class="text-2xl font-bold text-emerald-400">${GH(S.p.wallet)}</p></div><div class="${C}"><p class="text-slate-400 text-sm">Orders placed today</p><p class="text-2xl font-bold">${count||0}</p></div><div class="${C}"><p class="text-slate-400 text-sm">Spent this ${range}</p><p class="text-2xl font-bold">${GH(spent)}</p></div></div>
+ <div class="${C}"><div class="flex justify-between mb-3"><h2 class="font-semibold">Recent transactions</h2><select id="rg" class="${I} !w-auto"><option value="week" ${range=='week'?'selected':''}>Weekly</option><option value="month" ${range=='month'?'selected':''}>Monthly</option></select></div>${txTable(t)}</div>`);
+ $('#rg').onchange=e=>dash(e.target.value)}
+const txTable=t=>`<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-slate-400 text-left"><tr><th>Date</th><th>Type</th><th>Ref</th><th>Balance before</th><th>Amount</th><th>Balance after</th></tr></thead><tbody>${(t||[]).map(x=>`<tr class="border-t border-slate-800"><td class="py-2">${dt(x.created_at)}</td><td>${x.type}</td><td>${esc(x.ref)}</td><td>${GH(x.balance_before)}</td><td class="${x.type=='topup'?'text-emerald-400':'text-amber-400'}">${x.type=='topup'?'+':'-'}${GH(x.amount)}</td><td>${GH(x.balance_after)}</td></tr>`).join('')||'<tr><td class="py-3 text-slate-400">No transactions.</td></tr>'}</tbody></table></div>`;
+
+/* ---------- data packages ---------- */
+const fmt=n=>{n=String(n).replace(/\D/g,'');if(n.length==12&&n.startsWith('233'))return '0'+n.slice(3);if(n.length==9)return '0'+n;return n};
+function packages(){const list=S.pk.filter(p=>p.network==net);V=null;
+ shell('Data Packages',`<div class="flex gap-2 mb-3">${Object.keys(PFX).map(n=>`<button data-n="${n}" class="${n==net?B:B2}">${n}</button>`).join('')}</div>
+ <div class="${C} space-y-3"><label class="block text-sm">Package<select id="pkg" class="${I}">${list.map(p=>`<option value="${p.id}">${esc(p.name)} - ${GH(p.price)}</option>`).join('')}</select></label>
+ <div class="flex gap-2">${[['single','Single'],['text','Bulk text'],['excel','Excel import']].map(m=>`<button data-m="${m[0]}" class="${m[0]==mode?B:B2} text-sm">${m[1]}</button>`).join('')}</div>
+ ${mode=='single'?`<input id="nums" inputmode="numeric" placeholder="e.g. 0241234567" class="${I}">`:`<textarea id="nums" rows="6" placeholder="One number per line (or separated by commas/spaces). Leading zeros may be missing." class="${I}"></textarea>`}
+ ${mode=='excel'?`<input id="xl" type="file" accept=".xlsx,.xls,.csv" class="text-sm"><p class="text-xs text-slate-400">First column of the first sheet is read into the box above.</p>`:''}
+ <button id="val" class="${B}">Validate</button><div id="res"></div></div>`);
+ document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{net=b.dataset.n;packages()});
+ document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{mode=b.dataset.m;packages()});
+ if($('#xl'))$('#xl').onchange=async e=>{const f=e.target.files[0];if(!f)return;const w=XLSX.read(await f.arrayBuffer());const rows=XLSX.utils.sheet_to_json(w.Sheets[w.SheetNames[0]],{header:1});$('#nums').value=rows.map(r=>r[0]).filter(x=>x!=null&&x!=='').join('\n')};
+ $('#val').onclick=validate}
+async function validate(){const pkg=S.pk.find(p=>p.id==$('#pkg').value);if(!pkg)return;
+ const raw=$('#nums').value.split(/[\s,;]+/).filter(Boolean).map(fmt);$('#nums').value=raw.join('\n'); // 1 auto-format
+ const seen=new Set(),ok=[],bad=[],mis=[];
+ const since=new Date(Date.now()-5*60e3).toISOString();
+ const{data:rec}=await sb.from('orders').select('number,status').eq('user_id',S.u.id).gte('created_at',since).in('status',['Pending','Processing']);
+ const busy=new Set((rec||[]).map(r=>r.number));
+ raw.forEach(n=>{if(seen.has(n))return bad.push([n,'Duplicate in list']);seen.add(n);
+  if(!/^0\d{9}$/.test(n))return bad.push([n,'Invalid number length/format']);
+  if(busy.has(n))return bad.push([n,'This number is not yet delivered, please wait']); // 3 pending check
+  if(!PFX[net].includes(n.slice(0,3)))return mis.push(n); // 2 prefix check
+  ok.push(n)});
+ V={pkg,ok,mis,bad};draw()}
+function draw(){const{pkg,ok,mis,bad}=V;const ported=[...document.querySelectorAll('.pt:checked')].map(c=>c.value);const keep=[...ok,...(V.ported||[])];
+ const tot=keep.length*pkg.price,after=S.p.wallet-tot;
+ $('#res').innerHTML=`<div class="space-y-3 mt-2">${mis.length?`<div class="rounded-lg border border-amber-500 p-3"><p class="font-semibold text-amber-400">Flagged and excluded - prefix mismatch</p>${mis.map(n=>`<label class="flex gap-2 text-sm py-1"><input type="checkbox" class="pt" value="${n}" ${(V.ported||[]).includes(n)?'checked':''}> ${n} - This number is not ${net}. Tick if ported to ${net}.</label>`).join('')}</div>`:''}
+ ${bad.length?`<div class="rounded-lg border border-red-500 p-3"><p class="font-semibold text-red-400">Invalid numbers (${bad.length})</p>${bad.map(b=>`<p class="text-sm">${b[0]} - ${b[1]}</p>`).join('')}</div>`:''}
+ <div class="rounded-lg border border-emerald-600 p-3 text-sm"><p>Valid numbers: <b>${keep.length}</b> × ${GH(pkg.price)}</p><p>Wallet Before: <b>${GH(S.p.wallet)}</b></p><p>Order Total: <b>${GH(tot)}</b></p><p>Wallet After: <b class="${after<0?'text-red-400':''}">${GH(after)}</b></p>${after<0?'<p class="text-red-400">Insufficient balance. Ask admin to top up.</p>':''}</div>
+ <div class="flex gap-2"><button id="go" class="${B}" ${after<0||!keep.length?'disabled style="opacity:.4"':''}>Proceed and pay</button><button id="cx" class="${B2}">Cancel</button></div><div id="pm"></div></div>`;
+ document.querySelectorAll('.pt').forEach(c=>c.onchange=()=>{V.ported=[...document.querySelectorAll('.pt:checked')].map(x=>x.value);draw()});
+ $('#cx').onclick=()=>{V=null;$('#res').innerHTML=''};
+ $('#go').onclick=async()=>{const{error}=await sb.rpc('place_order',{p_pkg:pkg.id,p_numbers:keep});if(error)return $('#pm').innerHTML=msg(error.message,1);await loadProfile();$('#res').innerHTML=msg(`Order placed for ${keep.length} number(s).`);$('#nums').value=''}}
+
+/* ---------- agent store ---------- */
+async function store(){const{data:ap}=await sb.from('agent_prices').select('*').eq('user_id',S.u.id);const m=Object.fromEntries((ap||[]).map(a=>[a.package_id,a.price]));
+ const{data:o}=await sb.from('orders').select('*').eq('agent_id',S.u.id).order('created_at',{ascending:false}).limit(100);
+ const link=location.origin+location.pathname+'?store='+S.p.slug,sales=(o||[]).reduce((a,x)=>a+ +x.amount,0);
+ shell('Agent Store',`<div class="${C} mb-4"><p class="text-sm text-slate-400">Your unique store link</p><div class="flex gap-2 mt-1"><input readonly value="${link}" class="${I}" id="lk"><button id="cp" class="${B}">Copy</button></div></div>
+ <div class="${C} mb-4"><h2 class="font-semibold mb-2">Set your selling prices</h2>${S.pk.map(p=>`<div class="flex items-center gap-2 py-1 text-sm"><span class="flex-1">${p.network} ${esc(p.name)} (base ${GH(p.price)})</span><input type="number" step="0.01" min="${p.price}" data-p="${p.id}" value="${m[p.id]??''}" placeholder="${p.price}" class="${I} !w-28"></div>`).join('')}<button id="sv" class="${B} mt-3">Save prices</button><span id="sm"></span></div>
+ <div class="${C}"><h2 class="font-semibold">Store orders &amp; sales</h2><p class="text-sm text-slate-400 mb-2">${(o||[]).length} orders, ${GH(sales)} total sales</p>${(o||[]).map(x=>`<p class="text-sm border-t border-slate-800 py-1">${dt(x.created_at)} · ${x.network} ${esc(x.package_name)} · ${x.number} · ${GH(x.amount)} · ${x.status}</p>`).join('')}</div>`);
+ $('#cp').onclick=()=>{navigator.clipboard.writeText($('#lk').value);$('#cp').textContent='Copied'};
+ $('#sv').onclick=async()=>{const rows=[...document.querySelectorAll('[data-p]')].filter(i=>i.value).map(i=>({user_id:S.u.id,package_id:+i.dataset.p,price:+i.value}));const{error}=await sb.from('agent_prices').upsert(rows);$('#sm').innerHTML=msg(error?error.message:'Saved',!!error)}}
+
+/* ---------- histories ---------- */
+async function orders(){const{data}=await sb.from('orders').select('*').eq('user_id',S.u.id).order('created_at',{ascending:false}).limit(500);
+ shell('Order History',`<div class="${C} grid sm:grid-cols-3 gap-2 mb-3"><select id="fs" class="${I}"><option value="">All statuses</option>${STAT.map(s=>`<option>${s}</option>`).join('')}</select><select id="fn" class="${I}"><option value="">All networks</option>${Object.keys(PFX).map(s=>`<option>${s}</option>`).join('')}</select><input id="fp" placeholder="Number" class="${I}"><input id="fi" placeholder="Transaction ID" class="${I}"><input id="fa" type="datetime-local" class="${I}" aria-label="From"><input id="fb" type="datetime-local" class="${I}" aria-label="To"></div><div id="ol" class="${C}"></div>`);
+ const f=()=>{const s=$('#fs').value,n=$('#fn').value,p=$('#fp').value.trim(),i=$('#fi').value.trim().toLowerCase(),a=$('#fa').value,b=$('#fb').value;
+  const r=data.filter(x=>(!s||x.status==s)&&(!n||x.network==n)&&(!p||x.number.includes(p))&&(!i||x.ref.toLowerCase().includes(i))&&(!a||new Date(x.created_at)>=new Date(a))&&(!b||new Date(x.created_at)<=new Date(b)));
+  $('#ol').innerHTML=`<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="text-slate-400 text-left"><tr><th>Date</th><th>ID</th><th>Network</th><th>Package</th><th>Number</th><th>Amount</th><th>Status</th></tr></thead><tbody>${r.map(x=>`<tr class="border-t border-slate-800"><td class="py-2">${dt(x.created_at)}</td><td>${esc(x.ref)}</td><td>${x.network}</td><td>${esc(x.package_name)}</td><td>${x.number}</td><td>${GH(x.amount)}</td><td>${x.status}</td></tr>`).join('')||'<tr><td class="py-3">No orders match.</td></tr>'}</tbody></table></div>`};
+ document.querySelectorAll('#app select,#app input').forEach(e=>e.oninput=f);f()}
+async function tx(){const{data}=await sb.from('transactions').select('*').eq('user_id',S.u.id).order('created_at',{ascending:false}).limit(500);shell('Transaction History',`<div class="${C}">${txTable(data)}</div>`)}
+
+/* ---------- profile + admin ---------- */
+function profile(){shell('Profile',`<form id="pf" class="${C} max-w-md space-y-3"><label class="block text-sm">Full name<input name="full_name" value="${esc(S.p.full_name)}" class="${I}"></label><label class="block text-sm">Phone<input name="phone" value="${esc(S.p.phone)}" class="${I}"></label><p class="text-sm text-slate-400">Email: ${esc(S.u.email)}</p><button class="${B}">Save details</button><div id="m"></div></form>
+ <form id="pw" class="${C} max-w-md space-y-3 mt-4"><label class="block text-sm">New password<input name="p" type="password" minlength="6" required class="${I}"></label><button class="${B}">Change password</button><div id="m2"></div></form>`);
+ $('#pf').onsubmit=async e=>{e.preventDefault();const{error}=await sb.from('profiles').update(Object.fromEntries(new FormData(e.target))).eq('id',S.u.id);await loadProfile();$('#m').innerHTML=msg(error?error.message:'Saved',!!error)};
+ $('#pw').onsubmit=async e=>{e.preventDefault();const{error}=await sb.auth.updateUser({password:new FormData(e.target).get('p')});$('#m2').innerHTML=msg(error?error.message:'Password changed',!!error)}}
+async function admin(){const{data}=await sb.from('profiles').select('*').order('approved');
+ shell('Admin',`<div class="${C}">${(data||[]).map(u=>`<div class="flex flex-wrap items-center gap-2 border-t border-slate-800 py-2 text-sm"><span class="flex-1">${esc(u.full_name)} · ${esc(u.phone)} · ${GH(u.wallet)} · ${u.approved?'Approved':'<b class=text-amber-400>Pending</b>'}</span>${u.approved?'':`<button data-a="${u.id}" class="${B}">Approve</button>`}<input type="number" placeholder="Top-up" id="t${u.id}" class="${I} !w-24"><button data-t="${u.id}" class="${B2}">Top up</button></div>`).join('')}</div>`);
+ document.querySelectorAll('[data-a]').forEach(b=>b.onclick=async()=>{await sb.from('profiles').update({approved:true}).eq('id',b.dataset.a);admin()});
+ document.querySelectorAll('[data-t]').forEach(b=>b.onclick=async()=>{const v=+$('#t'+b.dataset.t).value;if(v>0){const{error}=await sb.rpc('admin_topup',{p_user:b.dataset.t,p_amount:v});if(error)alert(error.message);admin()}})}
+boot();
+</script></body></html>
